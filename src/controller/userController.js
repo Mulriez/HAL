@@ -1,91 +1,118 @@
-const { post, del } = require("../controller/cloudinaryController");
 const userModel = require("../models").user;
+const forgotPasswordModel = require("../models").forgotPassword;
+const crypto = require("crypto");
+const sendEmailHandle = require("../mail/index");
+const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const salt = bcrypt.genSaltSync(10);
-const { Op } = require("sequelize");
-const checkQuery = require("../utils/queryString");
+const dayjs = require("dayjs");
+require("dotenv").config();
 
-async function getUser(req, res) {
-  const { page, offset, pageSize, keyword } = req.query;
-  try {
-    const user = await userModel.findAndCountAll({
-      where: {
-        ...(checkQuery(keyword) && {
-          [Op.or]: [
-            {
-              nama: { [Op.substring]: keyword },
-            },
-          ],
-        }),
-      },
-      attributes: ["id", "email", "nama"],
-      offset: offset,
-      limit: pageSize,
-    });
-    res.status(201).json({
-      status: "success",
-      msg: "User Ditemukan",
-      data: user.rows,
-      pagination: {
-        page: page,
-        pageSize: pageSize,
-        total: user.count,
-      },
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      status: "Failed",
-      msg: "Ada kesalahan",
-    });
-  }
-}
-
-async function getUserDetail(req, res) {
-  const { id } = req.params;
-  try {
-    const user = await userModel.findByPk(id);
-
-    if (!user) {
-      return res.status(404).json({
-        status: "failed",
-        msg: "User tidak ditemukan",
-      });
-    }
-
-    res.status(201).json({
-      status: "success",
-      msg: "User Ditemukan",
-      data: user,
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      status: "Failed",
-      msg: "Ada kesalahan",
-    });
-  }
-}
-
-async function createUser(req, res) {
+async function login(req, res) {
   try {
     const payload = req.body;
-    const { email, nama, role, password } = payload;
-    let hashPassword = await bcrypt.hashSync("12345678", salt);
+    const { username, password } = payload;
+    const user = await userModel.findOne({
+      where: {
+        username: username,
+      },
+    });
+    if (!user) {
+      return res.status(422).json({
+        status: "Fail",
+        msg: "username tidak ditemukan, silahkan register",
+      });
+    }
+    if (password === null) {
+      return res.status(422).json({
+        status: "Fail",
+        msg: "Password & username beda",
+      });
+    }
+    const verify = await bcrypt.compareSync(password, user.password);
+    if (verify === false) {
+      return res.status(422).json({
+        status: "Fail",
+        msg: "Password tidak cocok",
+      });
+    }
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        nama: user.nama,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1d",
+      }
+    );
+    const refreshToken = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        name: user.nama,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "2d",
+      }
+    );
+    await userModel.update(
+      { refresh_token: refreshToken },
+      { where: { id: user.id } }
+    );
+
+    res.status(200).json({
+      status: "Success",
+      msg: "Login Berhasil",
+      token: token,
+      refresh_token: refreshToken,
+      user: user,
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "Failed",
+      msg: "Ada kesalahan",
+    });
+  }
+}
+
+async function refreshToken(req, res) {
+  try {
+    res.status(500).json({
+      status: "success",
+      msg: "berhasil",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: "Failed",
+      msg: "Ada kesalahan",
+    });
+  }
+}
+
+async function register(req, res) {
+  try {
+    const payload = req.body;
+    const { username, password, name, manager_id, address } = payload;
+    let hashPassword = await bcrypt.hashSync(password, salt);
     await userModel.create({
-      email,
+      username,
       password: hashPassword,
-      nama,
-      role,
+      name,
+      manager_id,
+      address,
     });
 
-    res.status(201).json({
+    res.status(200).json({
       status: "Success",
       msg: `User berhasil dibuat`,
-      data: payload,
+      data: payload
     });
   } catch (err) {
-    console.log(">>>>>", err);
+    console.log("error >>>>>>>", err);
     res.status(500).json({
       status: "Failed",
       msg: "Ada kesalahan",
@@ -93,188 +120,137 @@ async function createUser(req, res) {
   }
 }
 
-async function createUserBulk(req, res) {
+async function lupaPassword(req, res) {
   try {
-    const payload = req.body.user;
-    let hashPassword = await bcrypt.hashSync("12345678", 10);
-    let berhasil = 0;
-    let gagal = 0;
-
-    await Promise.all(
-      payload.map(async (item) => {
-        try {
-          await userModel.create({
-            email: item.email,
-            password: hashPassword,
-            nama: item.nama,
-            role: item.role,
-          });
-          berhasil = berhasil + 1;
-        } catch (err) {
-          gagal = gagal + 1;
-        }
-      })
-    );
-
-    res.json({
-      status: "Success",
-      msg: `User berhasil dibuat sebanyak ${berhasil} dan gagal sebanyak ${gagal}`,
+    const { email } = req.body;
+    //cek apakah user dengan email tsb terdaftar
+    const user = await userModel.findOne({
+      where: {
+        email: email,
+      },
     });
-  } catch (err) {
-    console.log("===========");
-    console.log(err);
-    console.log("===========");
-    res.status(500).json({
-      status: "Failed",
-      msg: "Ada kesalahan",
-    });
-  }
-}
-
-async function updateUser(req, res) {
-  try {
-    const { id } = req.params;
-    const payload = req.body;
-    let { email, nama, role } = payload;
-
-    const user = await userModel.findByPk(id);
-
+    //jika tidak terdaftar berikan response dengan msg email tidak terdaftar
     if (user === null) {
-      return res.status(404).json({
-        status: "fail",
-        msg: `User tidak ditemukan`,
+      return res.status(422).json({
+        status: "gagal",
+        msg: "email tidak ada, silahkan pakai yang sudah terdaftar",
       });
     }
-
-    let picture = user.picture; // Tetapkan foto yang sudah ada sebagai default
-
-    if (req.file) {
-      // Jika ada file yang diunggah, ganti foto dengan yang baru
-      const { secure_url, public_id } = await post(
-        req.file.path,
-        "photo profile"
-      );
-      picture = secure_url;
-      const thumbnailId = public_id;
-
-      if (user.thumbnailId) {
-        // Hapus foto lama jika ada
-        await del(user.thumbnailId);
-      }
-    }
-
-    await userModel.update(
-      {
-        picture,
-        email,
-        nama,
-        role,
+    // cek apakah token sudah pernah dibuat pada user tsb di table forgot password
+    const currentToken = await forgotPasswordModel.findOne({
+      where: {
+        userId: user.id,
       },
-      {
-        where: {
-          id: id,
-        },
-      }
-    );
-
-    res.status(201).json({
-      status: "Success",
-      msg: "User telah diupdate",
-      data: payload,
     });
+    // sudah hapus
+    if (currentToken !== null) {
+      await forgotPasswordModel.destroy({
+        where: {
+          userId: user.id,
+        },
+      });
+    }
+    // jika belum buat token
+    const token = crypto.randomBytes(32).toString("hex");
+    const date = new Date();
+    const expire = date.setHours(date.getHours() + 1);
+
+    await forgotPasswordModel.create({
+      userId: user.id,
+      token: token,
+      expireDate: dayjs(expire).format("YYYY-MM-DD hh:mm:ss"),
+    });
+
+    const context = {
+      link: `${process.env.MAIL_CLIENT_URL}/auth/reset-password/${user.id}/${token}`,
+    };
+    const sendEMail = await sendEmailHandle(
+      email,
+      "lupa password",
+      "lupaPassword",
+      context
+    );
+    if (sendEMail === "success") {
+      res.status(201).json({
+        status: "success",
+        msg: "Silahkan cek email",
+      });
+    } else {
+      console.log(">>>>>>>>>>>", sendEMail);
+      res.status(403).json({
+        status: "gagal",
+        msg: "Gunakan email yg terdaftar",
+      });
+    }
   } catch (error) {
     console.log(error);
-    res.status(500).json({
-      status: "Failed",
+    res.status(403).json({
+      status: "gagal",
       msg: "Ada kesalahan",
+      error: error,
     });
   }
 }
-
-//delete
-async function deleteUser(req, res) {
+async function resetPassword(req, res) {
   try {
-    const { id } = req.params;
-    const user = await userModel.findByPk(id);
+    const { newPassword } = req.body;
+    const { id, token } = req.params;
+    const currentToken = await forgotPasswordModel.findOne({
+      where: { userId: id, token: token },
+    });
 
-    if (user === null) {
-      return res.status(404).json({
-        status: "failed",
-        msg: `User tidak ditemukan`,
-      });
-    }
-
-    if (user.thumbnailId) {
-      // Memeriksa apakah user.thumbnailId ada sebelum menghapusnya
-      await del(user.thumbnailId);
-    }
-
-    // Menghapus pengguna
-    await userModel.destroy({
+    const user = await userModel.findOne({
       where: {
         id: id,
       },
     });
 
-    res.status(201).json({
-      status: "Success",
-      msg: "User dihapus",
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      status: "Failed",
-      msg: "Ada kesalahan",
-    });
-  }
-}
-
-async function deleteUserBulk(req, res) {
-  try {
-    let payload = req.body.user;
-    let berhasil = 0;
-    let gagal = 0;
-
-    // Memeriksa apakah user.thumbnailId ada sebelum menjalankan fungsi del
-    if (req.user && req.user.thumbnailId) {
-      await del(req.user.thumbnailId);
-    }
-
-    await Promise.all(
-      payload?.map(async (item) => {
-        try {
-          await userModel.destroy({
+    if (currentToken === null) {
+      res.status(403).json({
+        status: "Fail",
+        msg: "token invalid",
+      });
+    } else {
+      let expired = currentToken.expiredDate;
+      let expire = dayjs(Date());
+      let difference = expire.diff(expired, "hour");
+      if (difference !== 0) {
+        res.json({
+          status: "Fail",
+          msg: "Token has expired",
+        });
+      } else {
+        let hashPassword = await bcrypt.hash(newPassword, 10);
+        await userModel.update(
+          { password: hashPassword },
+          {
             where: {
-              id: item,
+              id: user.id,
             },
-          });
-          berhasil = berhasil + 1;
-        } catch (err) {
-          gagal = gagal + 1;
-          console.log(err);
-        }
-      })
-    );
-
-    res.json({
-      status: "Success",
-      msg: `User berhasil dihapus sebanyak ${berhasil} dan gagal sebanyak ${gagal}`,
-    });
+          }
+        );
+        await forgotPasswordModel.destroy({ where: { token: token } });
+        res.json({
+          status: "Success",
+          msg: "Password telah diupdate",
+        });
+      }
+    }
   } catch (err) {
-    console.log(err);
-    res.status(500).json({
-      status: "Failed",
+    console.log("err", err);
+    res.status(403).json({
+      status: "Fail",
       msg: "Ada kesalahan",
+      err: err,
+      // token: currentToken
     });
   }
 }
 
 module.exports = {
-  getUser,
-  getUserDetail,
-  createUser,
-  createUserBulk,
-  updateUser,
-  deleteUser,
-  deleteUserBulk,
+  login,
+  register,
+  refreshToken,
+  lupaPassword,
+  resetPassword,
 };
