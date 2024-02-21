@@ -10,7 +10,7 @@ async function post(file, folder) {
   return new Promise((resolve, reject) => {
     v2.uploader
       .upload(file, {
-        folder: `/myKantin/${folder}`,
+        folder: `/haleyora/${folder}`,
         use_filename: true,
       })
       .then((res) => {

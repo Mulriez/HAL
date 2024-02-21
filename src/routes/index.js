@@ -1,39 +1,33 @@
 const express = require("express");
 const {
   login,
-  lupaPassword,
-  resetPassword,
   register,
   refreshToken,
-} = require("../controller/AuthControllers");
+} = require("../controller/AuthController");
 
 const router = express.Router();
 const jwtValidateMiddleware = require("../middleware/JwtValidateMiddleware");
-const { getUser } = require("../controller/userController");
-const { getProduk, createProduk } = require("../controller/produkController");
+const { getUser, getUserID } = require("../controller/userController");
 const {
-  getTransaksi,
-  createTransaksi,
-} = require("../controller/transaksiController");
-const { getBayar } = require("../controller/bayarController");
+  getAbsen,
+  createAbsenIn,
+  getAbsent,
+  createAbsentIn,
+  getAbsentByUserId,
+} = require("../controller/Absencontroller");
+const uploadSingle = require("../storage/uploadSingle");
 //auth
-router.post("/auth/login", login);
-router.post("/auth/register", register);
+router.post("/api/login", login);
+router.post("/api/register", register);
 router.get("/token", refreshToken);
-//update password
-router.post("/auth/lupa-password", lupaPassword);
-router.put("/auth/reset-password/:id/:token", resetPassword);
 //jwt
 router.use(jwtValidateMiddleware);
 //user
-router.get("/user/list",jwtValidateMiddleware, getUser);
-//produk
-router.get("/produk/list", getProduk);
-router.post("/produk/create", createProduk);
-//transaksilm\
-router.get("/transaksi/list", getTransaksi);
-router.post("/transaksi/create", createTransaksi);
-//bayar
-router.get("/bayar/list", getBayar)
+router.get("/api/user", getUser);
+router.get("/api/user/:id", getUserID);
+//absen
+router.get("/api/absent/:id", getAbsent);
+router.get("/api/absent", getAbsentByUserId);
+router.post("/api/absent-in", uploadSingle, createAbsentIn);
 
 module.exports = router;
